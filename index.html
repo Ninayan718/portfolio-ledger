@@ -56,8 +56,19 @@ nav.tabbar .ic{width:20px;height:20px;border-radius:6px;background:#DDE3EB}
 nav.tabbar button.on .ic{background:#185FA5}
 input,select,textarea{font:inherit;width:100%;padding:9px 10px;border:1px solid #D9DDE3;border-radius:10px;background:#fff;color:#1F2937}
 label.f{display:block;font-size:12px;color:#5F6672;margin:10px 0 4px}
-.chip{display:inline-block;padding:5px 11px;border-radius:16px;background:#fff;border:1px solid #DDE3EB;font-size:13px;color:#5F6672;margin:0 6px 6px 0}
+.chip{display:inline-block;padding:5px 11px;border-radius:16px;background:#fff;border:1px solid #DDE3EB;font-size:13px;color:#5F6672;margin:0 6px 6px 0;cursor:pointer;-webkit-user-select:none;user-select:none}
 .chip.on{background:#185FA5;border-color:#185FA5;color:#fff}
+.gbar{background:#EAF1F9;border-left:4px solid #185FA5;border-radius:8px;padding:9px 11px;margin:16px 0 6px}
+.gbar.acc{background:#E9F4EF;border-left-color:#0F6E56}
+.gbar b{font-size:14px}
+.gbar .tag{margin-left:6px}
+.gmodehint{font-size:12px;color:#185FA5;background:#F0F5FC;border-radius:8px;padding:6px 9px;margin-top:8px}
+.qlink{font-size:11px;color:#185FA5;text-decoration:none;border:1px solid #C9DDF2;background:#F4F9FF;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.p30{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #F0F2F5}
+.p30 .lbl{font-size:11px;color:#8A9099;white-space:nowrap}
+.p30 .val{font-size:12px;font-weight:500;text-align:right}
+.mini{width:100%;height:56px;display:block;margin-top:6px}
+.hintbar{font-size:12px;color:#5F6672;background:#FFF7E6;border:1px solid #FAE1A8;border-radius:8px;padding:7px 9px;margin-top:8px}
 .modal{position:fixed;inset:0;background:rgba(17,24,39,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center}
 .modal .sheet{background:#fff;width:100%;max-width:640px;border-radius:16px 16px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto}
 .sheet h3{margin:0 0 6px;font-size:16px}
@@ -127,7 +138,7 @@ var SEED = [
  {n:"民生理财·竹周周盈7天持有期29号E",c:"待补",cat:"固收",ty:"银行理财",acc:"微众",th:"固收理财",mv:54054.20,ct:53720.41,src:"",tg:"保留"}
 ];
 var KEY="pfledger.v1";
-var S=null, TAB="overview", FILTER="全部", Q="", EXPAND={}, GMODE="ty";
+var S=null, TAB="overview", FILTER="全部", Q="", EXPAND={}, GMODE="ty", SORT30=false;
 var TYORDER=["股票","场内ETF","可转债","场外基金","投顾组合","银行理财"];
 var TYNAME={"场内ETF":"ETF（场内）","场外基金":"基金（场外）","投顾组合":"基金（投顾）","银行理财":"银行理财"};
 
@@ -135,6 +146,7 @@ var TYNAME={"场内ETF":"ETF（场内）","场外基金":"基金（场外）","�
 function money(v){var s=(Math.abs(v)).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",");return (v<0?"-":"")+s;}
 function wan(v){return (v/10000).toFixed(2)+"万";}
 function pct(v,d){return (v*100).toFixed(d===undefined?2:d)+"%";}
+function spct(v,d){return (v>0?"+":"")+(v*100).toFixed(d===undefined?2:d)+"%";}
 function signed(v){return (v>0?"+":"")+money(v);}
 function cls(v){return v>0?"up":(v<0?"down":"flat");}
 function today(){var d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
@@ -148,6 +160,7 @@ function load(){
   if(!S.holdings||!S.holdings.length)S.holdings=JSON.parse(JSON.stringify(SEED));
   if(!S.set)S.set=DEF;
   if(!S.snaps)S.snaps=[];
+  if(!S.hist)S.hist={};
   S.holdings.forEach(function(h,i){if(!h.id)h.id="h"+i;});
   /* 数据版本迁移：真实平台名 + 补齐基金代码/份额/最新净值 */
   if(S.dv!==3){
@@ -207,6 +220,123 @@ function tyList(t){
     return t.byTy[b]-t.byTy[a];
   });
   return ks.map(function(k){return {k:k,mv:t.byTy[k],pl:t.byTyPL[k]||0,n:t.byTyN[k]||0};});
+}
+
+/* ========== 近30天走势与行情链接 ========== */
+function quoteUrl(x){
+  if(x.src&&/^(sh|sz)/.test(x.src))return "https://quote.eastmoney.com/"+x.src+".html";
+  if(/^\d{6}$/.test(x.c||""))return "https://fund.eastmoney.com/"+x.c+".html";
+  return "";
+}
+function histKey(x){return /^\d{6}$/.test(x.c||"")?x.c:"";}
+function histUrl(x,cb){
+  var k=histKey(x);if(!k)return "";
+  if(x.src&&/^(sh|sz)/.test(x.src)){
+    var m=x.src.slice(0,2)==="sh"?"1":"0";
+    return "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid="+m+"."+k+
+      "&klt=101&fqt=1&lmt=45&end=20500101&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56&cb="+cb+"&_="+Date.now();
+  }
+  if(x.src==="f")return "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNHisNetList?FCODE="+k+
+    "&pageIndex=1&pageSize=45&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=1&callback="+cb+"&_="+Date.now();
+  return "";
+}
+function parseHist(x,o){
+  var d=[],v=[];
+  if(o&&o.data&&o.data.klines){
+    o.data.klines.forEach(function(k){var f=String(k).split(","),p=parseFloat(f[2]);if(f[0]&&p>0){d.push(f[0]);v.push(p);}});
+  }else if(o&&o.Datas){
+    o.Datas.slice().reverse().forEach(function(k){var p=parseFloat(k.DWJZ);if(k.FSRQ&&p>0){d.push(k.FSRQ);v.push(p);}});
+  }
+  return v.length>1?{d:d,v:v}:null;
+}
+var __hcSeq=0;
+function histOne(x){
+  return new Promise(function(res){
+    var url=histUrl(x,"__hc"+(++__hcSeq));
+    if(!url){res(false);return;}
+    var mm=url.match(/[?&](?:cb|callback)=([^&]+)/);if(!mm){res(false);return;}
+    var cb=mm[1],done=false,tm;
+    function finish(ok){if(done)return;done=true;clearTimeout(tm);try{delete window[cb];}catch(e){}res(ok);}
+    window[cb]=function(o){
+      var h=null;try{h=parseHist(x,o);}catch(e){}
+      if(h)S.hist[histKey(x)]={d:h.d,v:h.v,ts:today()};
+      finish(!!h);
+    };
+    tm=setTimeout(function(){finish(false);},10000);
+    script(url,10000).catch(function(){finish(false);});
+  });
+}
+async function fetchHist(force){
+  var d=today();
+  if(!S.hist)S.hist={};
+  var list=S.holdings.filter(function(x){
+    var k=histKey(x);
+    return histUrl(x,"x")&&(force||!S.hist[k]||S.hist[k].ts!==d);
+  });
+  if(!list.length)return {ok:Object.keys(S.hist).length,fail:0};
+  var ok=0,fail=0;
+  for(var i=0;i<list.length;i+=6){
+    var rs=await Promise.all(list.slice(i,i+6).map(histOne));
+    rs.forEach(function(r){if(r)ok++;else fail++;});
+  }
+  /* 顺带把场外基金净值同步到历史序列的最新一天 */
+  S.holdings.forEach(function(x){
+    if(x.src!=="f")return;
+    var h=S.hist[histKey(x)];if(!h||!h.v.length)return;
+    var nav=h.v[h.v.length-1],dt=h.d[h.d.length-1];
+    if(nav>0&&dt>=(x.navDate||"")){
+      x.p=nav;x.navDate=dt;
+      if(x.shares!=null)x.mv=x.shares*nav;
+    }
+  });
+  S.histDate=d;calc();snap();save();
+  return {ok:ok,fail:fail};
+}
+function perf30(x){
+  var h=S.hist&&S.hist[histKey(x)];
+  if(!h||!h.v||h.v.length<2)return null;
+  var now=new Date(),cut=new Date(now.getTime()-30*86400000),i0=0;
+  for(var i=0;i<h.d.length;i++){
+    if(new Date(String(h.d[i]).replace(/-/g,"/"))<=cut)i0=i;else break;
+  }
+  var p0=h.v[i0];
+  var p1=h.v[h.v.length-1];
+  if(!(p0>0)||!(p1>0))return null;
+  var qty=(x.qty!=null&&x.qty!=="")?x.qty:(x.shares!=null?x.shares:null);
+  var days=Math.round((now-new Date(String(h.d[i0]).replace(/-/g,"/")))/86400000);
+  return {r:(p1-p0)/p0,gain:qty!=null?qty*(p1-p0):null,p0:p0,p1:p1,d0:h.d[i0],
+          d1:h.d[h.d.length-1],days:days,series:h.v.slice(i0).concat([p1])};
+}
+function sparkMini(vals,col){
+  if(!vals||vals.length<2)return "";
+  var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),rg=mx-mn||1;
+  var w=280,hh=56,pad=5;
+  var pts=vals.map(function(v,i){return (i/(vals.length-1))*w+","+(hh-pad-((v-mn)/rg)*(hh-pad*2)).toFixed(1);});
+  return '<svg class="mini" viewBox="0 0 '+w+' '+hh+'" preserveAspectRatio="none"><polyline points="'+pts.join(" ")+'" fill="none" stroke="'+col+'" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+function perfBlock(x,pf,qu){
+  var h='<div style="margin-top:12px;border-top:1px solid #F0F2F5;padding-top:10px">'+
+    '<div class="spread"><b style="font-size:13px">近30天走势</b>'+
+    (qu?'<a class="qlink" href="'+qu+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">打开行情页 ↗</a>':'<span class="tiny muted">无公开行情页</span>')+'</div>';
+  if(!pf){
+    h+='<div class="tiny muted" style="margin-top:8px">这只没有公开的历史价格/净值（银行理财、投顾组合或代码待补），暂时算不出近30天走势。补齐代码后点「刷新30天」即可。</div>';
+  }else{
+    var col=pf.r>0?"#C0392B":(pf.r<0?"#1D9E75":"#8A9099");
+    h+=sparkMini(pf.series,col)+
+      '<div class="grid2" style="margin-top:6px">'+
+      '<div><div class="tiny muted">区间涨幅</div><div class="'+cls(pf.r)+'" style="font-weight:600">'+spct(pf.r,2)+'</div></div>'+
+      '<div><div class="tiny muted">我的收益（按持有份额）</div><div class="'+cls(pf.gain==null?0:pf.gain)+'" style="font-weight:600">'+(pf.gain!=null?signed(pf.gain):"—")+'</div></div></div>'+
+      '<div class="tiny muted" style="margin-top:6px">'+pf.d0+' '+pf.p0+' → '+pf.d1+' '+pf.p1+'（'+(x.src==="f"?"单位净值":"收盘价")+'）'+(pf.days<25?' · 历史数据仅 '+pf.days+' 天，按最早可得日期计算':' · 基准为30天前最近交易日')+'</div>';
+  }
+  return h+'</div>';
+}
+async function refresh30(){
+  var btn=document.getElementById("btn30");
+  if(btn){btn.disabled=true;btn.textContent="读取中…";}
+  var r=await fetchHist(true).catch(function(){return {ok:0,fail:-1};});
+  render();
+  if(btn){btn.disabled=false;btn.textContent="刷新30天";}
+  alert("近30天行情已更新\n读取 "+r.ok+" 只"+(r.fail>0?"，失败 "+r.fail+" 只":""));
 }
 
 /* ========== 信号 ========== */
@@ -308,44 +438,68 @@ function viewOverview(){
 }
 function viewHold(){
   var t=calc();
+  S.holdings.forEach(function(x){x._p30=perf30(x);});
   var cats=["全部","权益","可转债","固收"],al=accList(t),tl=tyList(t);
+  var cached=S.hist?Object.keys(S.hist).length:0;
   var h='<div class="card"><input id="q" placeholder="搜索名称 / 代码 / 主题" value="'+esc(Q)+'" oninput="Q=this.value;render()">'+
     '<div style="margin-top:8px">'+
-    '<span class="chip '+(GMODE==="ty"?"on":"")+'" onclick="GMODE=\'ty\';render()">按类型分组</span>'+
-    '<span class="chip '+(GMODE==="acc"?"on":"")+'" onclick="GMODE=\'acc\';render()">按平台分组</span></div>'+
+    '<button type="button" class="chip '+(GMODE==="ty"?"on":"")+'" onclick="setGmode(\'ty\')">按类型分组</button>'+
+    '<button type="button" class="chip '+(GMODE==="acc"?"on":"")+'" onclick="setGmode(\'acc\')">按平台分组</button></div>'+
+    '<div style="margin-top:8px" class="flex">'+
+    '<button class="btn sm ghost" id="btn30" onclick="refresh30()">刷新30天</button>'+
+    '<button type="button" class="chip '+(SORT30?"on":"")+'" style="margin:0" onclick="toggleS30()">按30日涨幅排行</button></div>'+
+    '<div class="gmodehint">'+(SORT30?"<b>30日涨幅排行榜</b> · 全部标的按近30天涨幅从高到低":"当前分组：<b>"+(GMODE==="ty"?"按类型":"按平台")+"</b> · 共 "+(GMODE==="ty"?tl.length:al.length)+" 组")+'</div>'+
+    '<div class="hintbar">已缓存 '+cached+' 只近30天走势'+(S.histDate?"（"+S.histDate+" 更新）":"")+' · 点卡片看迷你走势图，点「行情 ↗」看实时行情</div>'+
     '<div style="margin-top:8px">'+cats.map(function(c){return '<span class="chip '+(FILTER===c?"on":"")+'" onclick="FILTER=\''+c+'\';render()">'+c+'</span>';}).join("")+
     al.map(function(a){return '<span class="chip '+(FILTER===a.k?"on":"")+'" onclick="FILTER=\''+a.k+'\';render()">'+esc(a.k)+' '+money(a.mv)+'</span>';}).join("")+'</div>';
   if(FILTER!=="全部"&&t.byAcc[FILTER]!=null)
     h+='<div class="tiny muted" style="margin-top:6px">'+esc(FILTER)+'：'+t.byAccN[FILTER]+' 只 · 市值 ¥'+money(t.byAcc[FILTER])+' · 占组合 '+pct(t.byAcc[FILTER]/t.total,1)+' · 盈亏 <span class="'+cls(t.byAccPL[FILTER])+'">'+signed(t.byAccPL[FILTER]||0)+'</span></div>';
   h+='</div>';
   var groups=GMODE==="ty"?tl:al;
-  var rank={},gmeta={};
-  groups.forEach(function(a,i){rank[a.k]=i;gmeta[a.k]=a;});
+  var rank={};
+  groups.forEach(function(a,i){rank[a.k]=i;});
   var gkey=function(x){return GMODE==="ty"?x.ty:x.acc;};
   var list=S.holdings.filter(function(x){
     var okCat=(FILTER==="全部"||x.cat===FILTER||x.acc===FILTER);
     var okQ=!Q||(x.n+x.c+x.th+x.acc).toLowerCase().indexOf(Q.toLowerCase())>=0;
     return okCat&&okQ;
   }).sort(function(a,b){
-    if(FILTER==="全部"){
-      var ra=rank[gkey(a)]==null?99:rank[gkey(a)],rb=rank[gkey(b)]==null?99:rank[gkey(b)];
-      if(ra!==rb)return ra-rb;
+    if(SORT30){
+      var pa=a._p30?a._p30.r:null,pb=b._p30?b._p30.r:null;
+      if(pa==null&&pb==null)return b._mv-a._mv;
+      if(pa==null)return 1;
+      if(pb==null)return -1;
+      return pb-pa;
     }
+    var ra=rank[gkey(a)]==null?99:rank[gkey(a)],rb=rank[gkey(b)]==null?99:rank[gkey(b)];
+    if(ra!==rb)return ra-rb;
     return b._mv-a._mv;
+  });
+  /* 分组小计按当前可见持仓计算，筛选后数字才准确 */
+  var gsum={};
+  list.forEach(function(x){
+    var g=gkey(x);
+    gsum[g]=gsum[g]||{n:0,mv:0,pl:0};
+    gsum[g].n++;gsum[g].mv+=x._mv;gsum[g].pl+=x._pl;
   });
   var lastG="";
   list.forEach(function(x){
     var share=x._mv/t.total,r=x._ct>0?x._pl/x._ct:0;
     var g=gkey(x);
-    if(FILTER==="全部"&&g!==lastG){
-      lastG=g;var m=gmeta[g]||{n:0,mv:0,pl:0};
-      h+='<div class="spread" style="margin:14px 2px 2px"><b style="font-size:13px">'+esc(TYNAME[g]||g)+'<span class="tag">'+m.n+' 只</span></b>'+
-        '<span class="tiny muted">¥'+money(m.mv)+' · <span class="'+cls(m.pl)+'">'+signed(m.pl)+'</span></span></div>';
+    if(!SORT30&&g!==lastG){
+      lastG=g;var m=gsum[g]||{n:0,mv:0,pl:0};
+      h+='<div class="gbar'+(GMODE==="acc"?" acc":"")+'"><div class="spread"><b>'+esc(TYNAME[g]||g)+'<span class="tag">'+m.n+' 只</span></b>'+
+        '<span class="tiny">¥'+money(m.mv)+' · <span class="'+cls(m.pl)+'">'+signed(m.pl)+'</span></span></div></div>';
     }
     h+='<div class="card" style="padding:12px 14px"><div class="spread" onclick="EXPAND[\''+x.id+'\']=!EXPAND[\''+x.id+'\'];render()">'+
       '<div><div class="nm">'+esc(x.n)+'<span class="code">'+esc(x.c)+'</span><span class="tag">'+esc(x.th)+'</span></div>'+
       '<div class="tiny muted">'+esc(x.acc)+' · '+(x.p!=null?"现价 "+x.p:"净值未取")+(x.qty!=null?" × "+x.qty:"")+(x.navDate?" · 净值日 "+x.navDate.slice(5):"")+'</div></div>'+
       '<div style="text-align:right"><div><b>¥'+money(x._mv)+'</b></div><div class="small '+cls(x._pl)+'">'+signed(x._pl)+' · '+pct(r,1)+'</div><div class="tiny muted">'+pct(share,1)+'</div></div></div>';
+    var pf=x._p30,qu=quoteUrl(x);
+    var p30txt=pf?(spct(pf.r,1)+(pf.gain!=null?" · 我的 "+signed(pf.gain):"")):"暂无历史数据";
+    h+='<div class="p30"><div class="flex" style="gap:6px"><span class="lbl">近30天</span>'+
+      (qu?'<a class="qlink" href="'+qu+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">行情 ↗</a>':'')+
+      '</div><span class="val '+(pf?cls(pf.r):"muted")+'">'+p30txt+'</span></div>';
     if(EXPAND[x.id]){
       var opts=PLATS.map(function(p){return '<option value="'+p+'" '+(x.acc===p?"selected":"")+'>'+p+'</option>';}).join("");
       if(PLATS.indexOf(x.acc)<0)opts='<option value="'+esc(x.acc)+'" selected>'+esc(x.acc)+'</option>'+opts;
@@ -358,6 +512,7 @@ function viewHold(){
         '<div><label class="f">行情代码（留空=手动）</label><input value="'+esc(x.src||"")+'" placeholder="sh600036 / f" onchange="edit(\''+x.id+'\',\'src\',this.value)"></div></div>'+
         '<div class="flex" style="margin-top:10px"><button class="btn sm gray" onclick="del(\''+x.id+'\')">删除</button></div>'+
         '<div class="tiny muted" style="margin-top:6px">基金填 6 位代码后把行情代码填成 f，即可自动拉净值</div>'+
+        perfBlock(x,pf,qu)+
         '</div>';
     }
     h+='</div>';
@@ -380,8 +535,8 @@ function viewSignal(){
       lastCat=c;
       var gs=sg.filter(function(y){return (y.cat||"其他")===c;});
       var amt=gs.reduce(function(a,b){return a+b.amt;},0);
-      h+='<div class="spread" style="margin:14px 2px 2px"><b style="font-size:13px">'+esc(c)+'<span class="tag">'+gs.length+' 条</span></b>'+
-        '<span class="tiny muted">¥'+money(amt)+'</span></div>';
+      h+='<div class="gbar"><div class="spread"><b>'+esc(c)+'<span class="tag">'+gs.length+' 条</span></b>'+
+        '<span class="tiny">¥'+money(amt)+'</span></div></div>';
     }
     h+='<div class="card" style="padding:12px 14px"><div class="spread">'+
       '<div><div class="nm">'+esc(x.nm)+' <span class="tag '+(x.ty==="sell"?"sell":"buy")+'">'+(x.ty==="sell"?"卖出":"买入")+'</span></div>'+
@@ -410,6 +565,8 @@ function viewSet(){
   h+='<div class="card"><b>说明</b><div class="small muted" style="margin-top:6px">'+
    '· 行情来源：股票/ETF/转债取腾讯行情，场外基金取东方财富基金接口（净值每晚 20:00 后更新，QDII 慢一天），银行理财无公开接口需手动填。<br>'+
    '· 基金份额已按 10/19 净值从截图市值反推并固定，后续市值＝份额×最新净值。<br>'+
+   '· 近30天数据：股票/ETF/转债取东方财富日K，场外基金取逐日净值，每天缓存一次；银行理财、投顾组合无公开历史净值，不参与计算。<br>'+
+   '· 「行情 ↗」跳转到东方财富/天天基金对应标的页面，点开即看实时行情。<br>'+
    '· 提醒只是规则计算结果，不是投资建议，最终决策请自行判断。</div></div>';
   return h;
 }
@@ -423,6 +580,8 @@ function render(){
   renderHead();
 }
 function go(t){TAB=t;Array.prototype.forEach.call(document.querySelectorAll("#tabs button"),function(b){b.classList.toggle("on",b.dataset.t===t);});window.scrollTo(0,0);render();}
+function setGmode(m){GMODE=m;FILTER="全部";Q="";SORT30=false;window.scrollTo(0,0);render();}
+function toggleS30(){SORT30=!SORT30;window.scrollTo(0,0);render();}
 
 /* ========== 操作 ========== */
 function edit(id,k,v){
@@ -449,9 +608,9 @@ function exp(){
 }
 function imp(){
   var t=prompt("粘贴导出的 JSON","");if(!t)return;
-  try{var o=JSON.parse(t);if(!o.holdings)throw 0;S=o;save();render();alert("导入成功");}catch(e){alert("格式不对");}
+  try{var o=JSON.parse(t);if(!o.holdings)throw 0;S=o;if(!S.hist)S.hist={};if(!S.snaps)S.snaps=[];save();render();alert("导入成功");}catch(e){alert("格式不对");}
 }
-function reset(){if(!confirm("恢复初始 27 只标的？当前修改会丢失"))return;S={v:1,dv:2,holdings:JSON.parse(JSON.stringify(SEED)),snaps:S.snaps,set:S.set,last:""};S.holdings.forEach(function(h,i){h.id="h"+i;});save();render();}
+function reset(){if(!confirm("恢复初始 27 只标的？当前修改会丢失"))return;S={v:1,dv:3,holdings:JSON.parse(JSON.stringify(SEED)),snaps:S.snaps,set:S.set,last:"",hist:S.hist||{},histDate:S.histDate||""};S.holdings.forEach(function(h,i){h.id="h"+i;});save();render();}
 
 /* ========== 行情 ========== */
 function script(url,timeout){
@@ -515,6 +674,7 @@ async function refresh(silent){
   if(btn){btn.disabled=true;btn.textContent="刷新中…";}
   var a=await fetchStocks().catch(function(){return 0;});
   var f=await fetchFunds().catch(function(){return {ok:0,fail:0};});
+  fetchHist(false).then(function(){render();}).catch(function(){});
   var d=new Date();
   S.last=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
   calc();snap();save();render();
@@ -532,9 +692,10 @@ load();calc();
 })();
 save();render();
 (function(){
-  if(!S.set.auto)return;
+  var stale=!S.histDate||S.histDate!==today();
   var t=S.last?new Date(S.last.replace(/-/g,"/")).getTime():0;
-  if(Date.now()-t>6*3600*1000)refresh(true);
+  if(S.set.auto&&Date.now()-t>6*3600*1000){refresh(true);return;}
+  if(stale)fetchHist(false).then(function(){render();});
 })();
 </script>
 </body>
